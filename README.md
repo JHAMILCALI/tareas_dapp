@@ -40,6 +40,12 @@ npm install
 ```bash
 npm install tailwindcss @tailwindcss/vite
 ```
+## ✅ Versión estable recomendada
+Si quieres asegurar que tienes la versión más estable de ethers, instala esta:
+
+```bash
+npm install ethers@5
+```
 ## ⚙️ Variables importantes
 En el archivo App.jsx, asegúrate de tener:
 ```js
