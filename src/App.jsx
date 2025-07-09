@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState,useRef } from 'react';
 import { ethers } from 'ethers';
 import contratoJson from './contracts/ContratoDeTareas.json';
 import './index.css';
+
 const direccionContrato = "0xF13aeb265DB8B6Cf512665cfAd79A94bbfE19503";
 
 function App() {
@@ -11,6 +12,11 @@ function App() {
   const [descripcion, setDescripcion] = useState('');
   const [tareas, setTareas] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [modoEdicion, setModoEdicion] = useState(false);
+  const [idEdicion, setIdEdicion] = useState(null);
+  const formularioRef = useRef(null);
+  const finListaRef = useRef(null);
+
 
   const conectarWallet = async () => {
     if (window.ethereum) {
@@ -41,7 +47,10 @@ function App() {
       await tx.wait();
       setNombre('');
       setDescripcion('');
-      obtenerTareas();
+      await obtenerTareas();
+      if (finListaRef.current) {
+        finListaRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     } catch (err) {
       console.error("Error al crear tarea:", err);
     } finally {
@@ -49,23 +58,86 @@ function App() {
     }
   };
 
-  const obtenerTareas = async () => {
-    if (!contrato) return;
-    let nuevasTareas = [];
-    for (let i = 0; i < 100; i++) {
-      try {
-        const tarea = await contrato.leerTarea(i);
-        const [nombre, descripcion] = tarea;
-        if (nombre && descripcion) {
-          nuevasTareas.push(tarea);
-        }
-      } catch (error) {
-        console.error("Error al obtener tarea:", error);
-        break;
-      }
+  const actualizarTarea = async () => {
+    if (!contrato || idEdicion === null) return;
+    if (!nombre || !descripcion) return alert("Completa todos los campos");
+
+    try {
+      setLoading(true);
+      const tx = await contrato.actualizarTarea(idEdicion, nombre, descripcion);
+      await tx.wait();
+      setNombre('');
+      setDescripcion('');
+      setIdEdicion(null);
+      setModoEdicion(false);
+      obtenerTareas();
+    } catch (error) {
+      console.error("Error al actualizar tarea:", error);
+    } finally {
+      setLoading(false);
     }
-    setTareas(nuevasTareas);
   };
+
+  const eliminarTarea = async (id) => {
+    if (!contrato) return;
+
+    try {
+      const tx = await contrato.eliminarTarea(id);
+      await tx.wait();
+      obtenerTareas();
+    } catch (error) {
+      console.error("Error al eliminar tarea:", error);
+    }
+  };
+
+  const editarTarea = (id, nombre, descripcion) => {
+  setModoEdicion(true);
+  setIdEdicion(id);
+  setNombre(nombre);
+  setDescripcion(descripcion);
+
+  // Desplazar hacia el formulario
+  if (formularioRef.current) {
+    formularioRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+};
+
+
+  const obtenerTareas = async () => {
+  if (!contrato) return;
+
+  const nuevasTareas = [];
+  let erroresSeguidos = 0;
+  const maxErroresSeguidos = 10;
+
+  for (let i = 0; i < 1000; i++) {
+    try {
+      const tarea = await contrato.leerTarea(i);
+      const [id, nombre, descripcion] = tarea;
+
+      const estaEliminada = nombre.trim() === "" && descripcion.trim() === "";
+
+      if (!estaEliminada) {
+        nuevasTareas.push([id.toNumber(), nombre, descripcion]);
+        erroresSeguidos = 0; 
+      } else {
+        erroresSeguidos++;
+      }
+
+      if (erroresSeguidos >= maxErroresSeguidos) break;
+
+    } catch (error) {
+      console.error("Error al leer tarea en el índice", i, error);
+      console.warn("Tarea no encontrada en el índice", i);
+      erroresSeguidos++;
+      if (erroresSeguidos >= maxErroresSeguidos) break;
+    }
+  }
+
+  setTareas(nuevasTareas);
+};
+
+
 
   useEffect(() => {
     if (window.ethereum) {
@@ -97,7 +169,7 @@ function App() {
           </div>
         )}
 
-        <div className="space-y-3 mb-6">
+        <div ref={formularioRef} className="space-y-3 mb-6">
           <input
             className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
             value={nombre}
@@ -111,13 +183,19 @@ function App() {
             placeholder="Descripción"
           />
           <button
-            onClick={crearTarea}
+            onClick={modoEdicion ? actualizarTarea : crearTarea}
             disabled={loading}
-            className={`w-full bg-indigo-600 text-white font-semibold py-2 rounded hover:bg-indigo-700 transition ${
+            className={`w-full ${modoEdicion ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-semibold py-2 rounded transition ${
               loading ? 'opacity-50 cursor-not-allowed' : ''
             }`}
           >
-            {loading ? 'Creando...' : 'Crear Tarea'}
+            {loading
+              ? modoEdicion
+                ? 'Actualizando...'
+                : 'Creando...'
+              : modoEdicion
+              ? 'Actualizar Tarea'
+              : 'Crear Tarea'}
           </button>
         </div>
 
@@ -129,8 +207,23 @@ function App() {
             <li key={id} className="bg-gray-100 p-3 rounded border border-gray-200">
               <p className="font-semibold text-gray-800">{nombre}</p>
               <p className="text-gray-600">{descripcion}</p>
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={() => editarTarea(id, nombre, descripcion)}
+                  className="bg-yellow-400 text-white px-3 py-1 rounded hover:bg-yellow-500 text-sm"
+                >
+                  Editar
+                </button>
+                <button
+                  onClick={() => eliminarTarea(id)}
+                  className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+                >
+                  Eliminar
+                </button>
+              </div>
             </li>
           ))}
+          <div ref={finListaRef}></div>
         </ul>
       </div>
     </div>
